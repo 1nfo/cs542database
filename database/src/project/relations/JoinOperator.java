@@ -156,7 +156,7 @@ public class JoinOperator implements AlgebraNode {
 
 	public static void main(String[] args) {
 		DBManager dbm = DBManager.getInstance();
-		Parser p = new Parser("select Country.code from Country, City on Country.code = city.CountryCode"
+		Parser p = new Parser("Query","select Country.code from Country, City on Country.code = city.CountryCode"
 				+ " where 0.4 * Country.population <= city.population");
 		JoinOperator j1 = new JoinOperator(p.getJInfo(),p.getCrossTable());
 		for (Relation r : p.getRelations()){

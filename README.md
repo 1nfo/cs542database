@@ -21,18 +21,22 @@
 |------[Concurrency control](#15)
 [Further Assumptions](#16)
 
-**Project2**
-Table Metadata	
-Attribute Index	
-Relation&DBManager	
-Condition		
-Shell Validation
+**Project2**		
+Table Metadata		
+Attribute Index		
+Relation&DBManager		
+Condition			
+Shell Validation		
 
-**Project 3**
-AlgebraNode
-Parser
-Pipeline
+**Project 3**		
+AlgebraNode		
+Parser		
+Pipeline		
 
+**Project 4**
+UpdateOperator  
+DBRecovery  
+LogObject
 
 #Framework<span id = "0"\>：
 ##Operating procedure<span id = "9"\>
@@ -579,3 +583,58 @@ Information is passed between Nodes in the form of a List of Pair class, where t
 In our design, we did not implement the optimal pipeline structure. We handled all the query in the form below:
 
 ![GitHub Logo](pipeline.png)
+
+#Further Assumptions in Project 4
+
+##LogObject
+First reading the log file into memory  and push every line<TableID, ColumnID, OldValue, NewValue> into a stack. Next in a loop popping the line in the stack and then checking whether the first appearance of line containing "<CHK PNT>" flag. If there has a  "<CHK PNT>" flag, then stop the loop. For every update or delete record, using parseLog function to parse the line from String to LogObj format and add this log object into a list. During the parsing process, based on the value type, we used Java Generic to save different variable types in the log line. For example, if the log line <1,1,0.3,0.5>, the parseLog function will automatically create a log object including a double type of old value and new value. Finally, we transfer this log object list to the upper layer to do the recovery.
+	
+##DBRecovery
+### recover process
+
+1.	Recovery class will read out the log records and put ones, which are not earlier than the most recent check point, into stack.
+2. Get out of records and arrange them in a list.
+2. If it's a redo recovery, the list will be reversed. If undo, keep the original order of the list.
+3. Scan the list, and apply every log record to recover the data in database.
+
+###methods list
+
+|Func Name|Description|		
+|---|---|		
+|Recover(DBManager dbm,String Redo_Undo)|recover database "dbm", String Redo_Undo, which is either "redo" or "undo", indicate how to recover the database|		
+|clearLog()|clean the log|		
+|writeCHK()|write a new line "CHK PNT", into the log file to indicate check point|		
+|logUpdate(int rid, String attrName, int type, Object oldVal,String newV)|This func will be called by update operator to generate a redo/undo log line|
+|logLoad()|This function will load the log file and get the log line records since the last checking point sign, and then parse every log line into log object and finally return a log object list.		
+|parseLog(String line)| This function will parse the log line into log object. It will automatically create correct value type when build a log object based on the values in the log line.		
+|writeIntoLog(String line)	| Func will write a new line into log file|	
+|writeFailure()|write a failure flag into log file. Here we use this function to simulate a database failure|		
+### Write into log file
+Every times the update operator performs a value updating, a new line, who indicates rid(this rid is unique in our database), attribute name, old value and new value, will be written into the log file. If all updates are done, a commit will show up and check point will be put into the last line of log file. At the beginning of the recovery, a recovery point will be written into log, so that, if a failure happens during the recovering, then, in next times of recovery, database will make sure only execute the valid part in log.
+
+##UpdateOperator
+The UpdateOperator is implemented as an implementation of AlgebraNode. It will update all corresponding tuples according to conditions specified by the user.
+
+|attribute name|description|
+|---|---|
+|private boolean isOpen|Determines if its Open|
+|private List<\AlgebraNode> publishers|List of children Nodes.|
+|private  Map<\Integer,List<\Pair>> SingleTBCdt|Conditions to update|
+|private List<\Pair<\String,ExpressionParser>> To_Update|The to_Update attributes|
+
+#####method:
+|method name|description|
+|---|---|
+|void open ()|Prepare the node for Data Pipelining. Open the first publisher
+|List<\Pair<\Integer,Integer>> getNext()|Returns the next filtered tuple.
+|void close()|Clean and close the node.	
+|public void attach|Adds an AlgebraNode to its publishers|
+|public void dettach|Removes an AlgebraNode to its publishers|
+##Validation Steps
+As for validation part, please run the TestDBRecvery.main().
+This function will lead the test to several steps as followed:
+
+1. Copy "cs542.db" to "cs542A.db"
+2. Open "cs542.db", update population by increasing 2% and keep track in log file.
+3. Open "cs542A.db", apply log to this database, and perform redo-recovery. At this time you can use SQL to query result. Then quit shell.
+4. Open "cs542.db", and compare the result.

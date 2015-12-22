@@ -1,5 +1,6 @@
 package project;
 
+import project.relations.UpdateOperator;
 import test.*;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -13,14 +14,14 @@ public class DBTool {
     private DBTool(){}
 
     private static void showTab(DBManager dbm){
-        if(dbm==null){System.out.println("No db file");}
+        if(dbm==null){System.out.println("No db file");return;}
         for(int tid:dbm.getTabMeta().keySet()){
             System.out.print(dbm.getTabMeta().get(tid).get(0).getRight()+" ");
         }
         System.out.print('\n');
     }
     private static void showSchema(DBManager dbm,String tName){
-        if(dbm==null){System.out.println("No db file");}
+        if(dbm==null){System.out.println("No db file");return;}
         int tid=tabNameToID(dbm,tName);
         for(int i=1;i<dbm.getTabMeta().get(tid).size();i++){
             System.out.print(dbm.getTabMeta().get(tid).get(i).getLeft()+" ");
@@ -117,9 +118,9 @@ public class DBTool {
         return tid;
     }
 
-    private static void shell(){
+    public static void shell(String dbfilename){
         System.out.println("Welcome! This is a group project of cs542 at WPI\nType help to see commands.");
-        DBManager dbmanager;
+        DBManager dbmanager=DBManager.getInstance(dbfilename);
         BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
         String[] s;
         waiting_command:
@@ -131,8 +132,7 @@ public class DBTool {
                 switch (s[0]) {
                     case "quit":case "q":           System.out.println("Now Quit Shell.");break waiting_command;
                     case "show":
-                        if (s.length==1) dbmanager = DBManager.getInstance();
-                        else dbmanager=DBManager.getInstance(s[1]);
+                        if (s.length>1) dbmanager=DBManager.getInstance(s[1]);
                         showWrapped(dbmanager);
                         DBManager.close();break;
                     case "fragment":case "f":       TestFragmentation.main(null);break;
@@ -141,22 +141,35 @@ public class DBTool {
                     case "readcsv":case"r":         TestReadCSV.main(null);break;
                     case "mtable":case"m":          TestMultab.main(null);break;
                     case "pipeline":case"p":        Pipeline.main(null);break;
-                    case ".table":case".t":         showTab(DBManager.getInstance());break;
-                    case ".schema":case".s":        showSchema(DBManager.getInstance(),s[1]);
+                    case ".table":case".t":         showTab(dbmanager);break;
+                    case ".schema":case".s":        if(s.length>1)showSchema(dbmanager,s[1]);
+                                                    else System.out.println(
+                                                    ".schema|.s <tablename>\t\tshow table attribute names");
+                                                    break;
                     case "select":
                         if(s.length>3&&s[2].equals("from")){
                             if(s[3].matches("[\\s\\S]+,[\\s\\S]+")){
-                                Pipeline p=new Pipeline(new Parser(input));
+                                Pipeline p=new Pipeline(new Parser("Query",input));
                                 p.exec();
                             }else {
                                 dbmanager = DBManager.getInstance();
                                 if (s.length > 5 && s[4].equals("where")) {
-                                    dbmanager.printQuery(tabNameToID(dbmanager, s[3]), dbmanager.tabProject(s[3], s[1]), new Condition(input.split("where")[1]));
+                                    dbmanager.printQuery(tabNameToID(dbmanager, s[3]),
+                                            dbmanager.tabProject(s[3], s[1]), new Condition(input.split("where")[1]));
                                 } else if (dbmanager != null) {
-                                    dbmanager.printQuery(tabNameToID(dbmanager, s[3]), dbmanager.tabProject(s[3], s[1]), new Condition());
+                                    dbmanager.printQuery(tabNameToID(dbmanager, s[3]),
+                                            dbmanager.tabProject(s[3], s[1]), new Condition());
                                 }
                             }
                         }break;
+                    case "update":
+                        Parser p = new Parser("update", input);
+                        UpdateOperator up = new UpdateOperator(p.getDispatched(),p.getUpinfo());
+                        up.attach(p.getRelations().get(0));
+                        up.open();
+                        up.getNext();
+                        dbmanager.Commit();
+                        break;
                     case "create":
                         dbmanager=DBManager.getInstance();
                         if(s.length>2)
@@ -183,7 +196,7 @@ public class DBTool {
                         else System.out.println("Not Enough parameters!");break;
                     case "help":case "h":
                         System.out.println("Help Information:\nq|Q|quit|Quit\t\tquit the shell\n" +
-                                "show [<filename>]\tshow the space of the database, default file is 'cs542.db'.\n" +
+                                "show [<file name>]\tshow the space of the database, default file is 'cs542.db'.\n" +
                                 "fragment|f\t\t\tvalidate fragment\n" +
                                 "concurrency|c\t\tvalidate concurrency control\n" +
                                 "clear|cl\t\t\tclear the database\n"+
@@ -192,9 +205,10 @@ public class DBTool {
                                 "pipepline|p\t\t\tshow an pipeline example" +
                                 "\n------SQL-----\n"+
                                 "select <attribute(s)> from <table> [where <condition(s)>]\n" +
-                                "create index <table(attributeName[, ...])>\n" +
+                                "update <table> set <attribute(s)> where [<condition(s)>]\n" +
+                                "create index <table(attribute name[, ...])>\n" +
                                 ".table|.t\t\t\t\t\tshow table name in database\n" +
-                                ".schema|.s <tablename>\t\tshow table attribute names");break;
+                                ".schema|.s <table name>\t\tshow table attribute names");break;
                     default:System.out.println("Can't find the command '"+s[0]+"'\nyou may use 'help' command");
                 }
             } catch (Exception e) {
@@ -204,5 +218,5 @@ public class DBTool {
         }
     }
 
-    public static void main(String[] args){shell();}
+    public static void main(String[] args){shell("cs542.db");}
 }

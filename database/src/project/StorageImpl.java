@@ -26,17 +26,17 @@ public class StorageImpl implements Storage {
 	public StorageImpl(){}
 
 	//return the byte array data part of the given filename
-	public byte[] readData(String fileName) throws IOException{
-		byte[] data= readOutDataBase(fileName);
+	public byte[] readData(String fileName,DBManager dbm) throws IOException{
+		byte[] data= readOutDataBase(fileName,dbm);
 		return Arrays.copyOfRange(data,0,DATA_SIZE);
 	}
 
 	//write given byte array data into the given file with
-	public void writeData(String fileName, byte[] data) throws Exception {
+	public void writeData(String fileName, byte[] data,DBManager dbm) throws Exception {
 		// Verify the data size cannot exceed the DATA_SIZE
 		if(data.length > DATA_SIZE)
 			throw new Exception("The data size is exceed the requirement!");
-		writeIntoDataBase(fileName,data,true);
+		writeIntoDataBase(fileName,data,true,dbm);
 	}
 
 	//write given metadata into file
@@ -54,24 +54,24 @@ public class StorageImpl implements Storage {
 		// Verify the data size cannot exceed the METADATA_SIZE
 		if (metadata.length > METADATA_SIZE)
 			throw new Exception("The metadata size is exceed the requirement!");
-		writeIntoDataBase(fileName,metadata,false);
+		writeIntoDataBase(fileName,metadata,false,dbm);
 	}
 
 	//read metadata out of given file
-	public byte[] readMetaData(String fileName) throws IOException{
-		byte[] data=readOutDataBase(fileName);
+	public byte[] readMetaData(String fileName,DBManager dbm) throws IOException{
+		byte[] data=readOutDataBase(fileName,dbm);
 		return Arrays.copyOfRange(data,DATA_SIZE,data.length);
 	}
 
 	//read information in database, if it does not exists, then create.
-	private byte[] readOutDataBase(String fileName) throws IOException{
+	private byte[] readOutDataBase(String fileName,DBManager dbm) throws IOException{
 		InputStream inputstream;
 		byte[] out;
 		try {
 			inputstream = new FileInputStream(fileName);
 			out=IOUtils.toByteArray(inputstream);
 		} catch (FileNotFoundException e) {
-			System.out.println("File "+DBManager.getDBName()+" created");
+			System.out.println("File "+dbm.getDBName()+" created");
 			FileOutputStream fos=null;
 			try{
 				fos = new FileOutputStream(fileName);
@@ -85,21 +85,21 @@ public class StorageImpl implements Storage {
 			}finally{
 				if(fos != null) fos.close();
 			}
-			out=readOutDataBase(fileName);
+			out=readOutDataBase(fileName,dbm);
 		}
 		return out;
 	}
 
 	//write data or metadata into a file
-	private void writeIntoDataBase(String fileName,byte[] writeContent, boolean isData) throws IOException{
+	private void writeIntoDataBase(String fileName,byte[] writeContent, boolean isData, DBManager dbm) throws IOException{
 		byte[] out;
 		if(isData){
-			out = readOutDataBase(fileName);
+			out = readOutDataBase(fileName,dbm);
 			System.arraycopy(writeContent, 0, out, 0, writeContent.length);
 		}
 		else{
 			out=new byte[DATA_SIZE+writeContent.length];
-			byte[] data=readData(fileName);
+			byte[] data=readData(fileName,dbm);
 			System.arraycopy(data,0,out,0,data.length);
 			System.arraycopy(writeContent,0,out,data.length,writeContent.length);
 		}

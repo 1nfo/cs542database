@@ -19,11 +19,17 @@ public class Parser {
 	Map<Integer, Map<Integer,List<Pair>>> Dispatched =  new HashMap<Integer, Map<Integer,List<Pair>>>();
 	Map<Pair<Integer,Integer>, Pair<String,Pair>> CrossTable =
 			new HashMap<Pair<Integer,Integer>, Pair<String,Pair>>();
+	private List<Pair<String,ExpressionParser>> Up_Attrs;
 	DBManager dbm = DBManager.getInstance();
-	public Parser(String query){
-		attrnames = new HashMap<Integer,List<String>>();
+
+	public Parser(String Type, String query){
 		Relations = new ArrayList<Relation>();
 		On_Conditions = new ArrayList<Pair<Integer,String>>();
+		if (Type.equals("update")){Update(query);}
+		else{Query(query);};
+	}
+	public void Query(String query){
+		attrnames = new HashMap<Integer,List<String>>();
 		int[] tmpl2=find(query, "\\s+from\\s+");
 		int[] tmpl3=find(query, "\\s+where\\s+");
 		int l2 =(tmpl2==null)?query.length():tmpl2[0];
@@ -35,6 +41,69 @@ public class Parser {
 		Joins(joins);
 		Where(where);
 	}
+
+	public void Update(String query){
+		DBManager dbm = DBManager.getInstance();
+		Up_Attrs = new ArrayList<>();
+		query = query.toLowerCase();
+		String U_RPattern = "(?<=update\\s)[\\S]*";
+		String U_SetAttrs = "(?<=set\\s).*(?=[\\s*where]?)";
+		String U_where = "(?<=where\\s).*";
+		Pattern p=Pattern.compile(U_RPattern);
+		Matcher m = p.matcher(query);
+		if (m.find()){
+			String U_Relation = m.group().toLowerCase().trim();
+			Relations.add(new Relation(U_Relation));
+			int tID = DBTool.tabNameToID(dbm, U_Relation);
+			p = Pattern.compile(U_SetAttrs);
+			m = p.matcher(query);
+			if (m.find()){
+				String[] U_Attrs = m.group().toLowerCase().trim().split("\\s*,\\s*");
+				for (String s : U_Attrs){
+					String[] conds = s.split("\\s*=\\s*");
+					ExpressionParser expr = new ExpressionParser(conds[1].trim());
+					expr.setID(tID);
+					Pair pair = new Pair (conds[0].trim(),expr);
+					Up_Attrs.add(pair);
+				}
+			}
+			p = Pattern.compile(U_where);
+			m = p.matcher(query);
+			if (m.find()){
+				String where = m.group().trim();
+				Pair newTermpair,newExprpair;
+				or_conditions=where.split("\\sor\\s(?=([^\"]*\"[^\"]*\")*[^\"]*$)");
+				for(int ii=0;ii<or_conditions.length;ii++){
+					and_conditions.add(or_conditions[ii].split("\\sand\\s(?=([^\"]*\"[^\"]*\")*[^\"]*$)"));
+				}
+				//Dispatching Attributes and Parsing sub-conditions
+				try{
+					List<String[]> sublists = this.throwCondition();
+					for (String[] sub : sublists){
+						int groupno = Integer.parseInt(sub[3]);
+						ExpressionParser Left = new ExpressionParser(sub[1]);
+						ExpressionParser Right = new ExpressionParser(sub[2]);
+						Right.setID(tID);
+						Left.setID(tID);
+						newTermpair = new Pair<ExpressionParser,ExpressionParser>(Left,Right);
+						newExprpair = new Pair<String, Pair>(sub[0], newTermpair);
+						//Same Table; Using Dispatched
+						if (!Dispatched.containsKey(groupno)){
+							Map<Integer,List<Pair>> map = new HashMap<Integer,List<Pair>>();
+							Dispatched.put(groupno, map);
+						}
+						if (!Dispatched.get(groupno).containsKey(tID)){
+							Dispatched.get(groupno).put(tID, new ArrayList<Pair>());
+						}
+						Dispatched.get(groupno).get(tID).add(newExprpair);
+					}
+				}catch(Exception e) {
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+
 
 
 	private static int[] find(String s, String pattern){
@@ -104,7 +173,7 @@ public class Parser {
 		}
 	}
 
-	private void Where(String s){
+	public void Where(String s){
 		Pair newTermpair,newExprpair;
 		s = s.substring(6);
 		//Splitting the where clause into a set of sub conditions
@@ -217,10 +286,11 @@ public class Parser {
 		return this.Relations;
 	}
 
+	public List<Pair<String,ExpressionParser>> getUpinfo(){ return Up_Attrs;}
+
 
 	public static void main(String[] args){
-		Parser par = new Parser("select Movies.x1,Movies.x3,Movies1.x4 from Movies, Movies1 on Movies.year = Movies1.year"
-				+ " where Movies.year > 0.8 * Movies1.year and Movies.price > 1  and Movies.Title = \"dsdsdssd\" or Movies.country=\"usa\" ");
+		Parser par = new Parser("update","Update Country set population = population * 1.2 where Country.population < 1000000");
 	}
 
 

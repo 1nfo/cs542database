@@ -20,7 +20,7 @@ public interface Storage {
 	 * @param data: data bytes
 	 * @throws Exception
 	 */
-	void writeData(String fileName, byte[] data) throws Exception;
+	void writeData(String fileName, byte[] data,DBManager dbm) throws Exception;
 
 	/**
 	 * read the data file into memory
@@ -28,7 +28,7 @@ public interface Storage {
 	 * @return data list
 	 * @throws IOException
 	 */
-	byte[] readData(String fileName) throws IOException;
+	byte[] readData(String fileName, DBManager dbm) throws IOException;
 
 	/**
 	 * write the index into metadata
@@ -43,5 +43,5 @@ public interface Storage {
 	 * @return index list
 	 * @throws IOException
 	 */
-	byte[] readMetaData(String fileName) throws IOException;
+	byte[] readMetaData(String fileName, DBManager dbm) throws IOException;
 }

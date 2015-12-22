@@ -12,6 +12,7 @@ import org.apache.logging.log4j.core.Logger;
  */
 public class DBManager {
 	Logger logger = (Logger) LogManager.getLogger();
+	DBRecovery dbr = new DBRecovery("logging.txt");
 
 	private static DBManager dbManager = null;
 
@@ -46,9 +47,9 @@ public class DBManager {
 	private IndexHelper indexHelper;
 
 	//---------------Method------------------------
-	private DBManager(String dbName) {DB_NAME=dbName;}
+	private DBManager(String dbName) {DBManager.DB_NAME=dbName;}
 	public static void close(){dbManager=null;}
-	public static String getDBName(){return DB_NAME;}
+	public String getDBName(){return DBManager.DB_NAME;}
 	public static DBManager getInstance(String dbName){
 		if (dbManager == null){
 			// Instantiate and Initialization of DBManager
@@ -57,7 +58,7 @@ public class DBManager {
 			dbManager.indexHelper = new IndexHelperImpl();
 			dbManager.Locker = new DbLocker();
 			if(!new File(dbName).isFile()) {
-				System.out.println("File "+DBManager.getDBName()
+				System.out.println("File "+dbManager.getDBName()
 						+" doesn't exist\nWould you like to create a new one now?(Y/N)");
 				BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
 				String is_YorN;
@@ -69,16 +70,16 @@ public class DBManager {
 					return null;
 				}
 				if (is_YorN.toLowerCase().equals("y")){
-					dbManager.readDatabase();
+					dbManager.readDatabase(dbManager);
 				}
 				else dbManager=null;
 			}
-			else dbManager.readDatabase();
+			else dbManager.readDatabase(dbManager);
 		}
 
 		return dbManager;
 	}
-	public static DBManager getInstance(){return getInstance("cs542.db");}
+	public static DBManager getInstance(){return getInstance(DBManager.DB_NAME);}
 
 	public int get_DATA_USED() {return DATA_USED;}
 	public void set_DATA_USED(int size) {DATA_USED = size;}
@@ -124,27 +125,29 @@ public class DBManager {
 		this.set_INDEXES_USED(indexSize);
 	}
 
-	public void readDatabase(){
+	public void readDatabase(DBManager dbm){
+		//Before reading , you will have to check the log to see if the last transaction is finished
 		//Read the database and upload the data into memory
 		byte[] metadata;
 		try{
-			data = DBStorage.readData(DB_NAME);
+			data = DBStorage.readData(DBManager.DB_NAME,dbm);
 			logger.info("Data read in memory");
 		} catch (IOException e) {
 			e.printStackTrace();
 			System.out.println("Failed to read Data into memory");
 		}
 		try{
-			metadata = DBStorage.readMetaData(DB_NAME);
+			metadata = DBStorage.readMetaData(DBManager.DB_NAME, dbm);
 			clusteredIndex = indexHelper.bytesToIndex(metadata);
 			tabMetadata=indexHelper.bytesToTabMeta(metadata);
 			attrIndexes = new Hashtable<>();
 			attrIndexes=indexHelper.bytesToHashtab(metadata);
 			indexToSize();
+			dbr.Recover(this, "redo");
 			logger.info("Free Space left is:" + (DATA_SIZE - DATA_USED));
 			logger.info("Free Meta Space left is:" + (METADATA_SIZE - METADATA_USED));
 			logger.info("Metadata read in Memory");
-		} catch (IOException e) {
+		} catch (Exception e) {
 			e.printStackTrace();
 			System.out.println("Failed to read MataData into memory");
 		}
@@ -188,7 +191,7 @@ public class DBManager {
 
 		tabMetadata.put(tid, pairs);
 		attrIndexes.put(tid, new Hashtable<>());
-		DBStorage.writeMetaData(DB_NAME, dbManager);
+		DBStorage.writeMetaData(DBManager.DB_NAME, dbManager);
 	}
 	public void clear() {
 		// for clearing the database
@@ -200,7 +203,7 @@ public class DBManager {
 			attrIndexes =new Hashtable<>();
 			logger.info("Clear : Metadata buffer updated");
 			set_METADATA_USED();
-			DBStorage.writeMetaData(DB_NAME, dbManager);
+			DBStorage.writeMetaData(DBManager.DB_NAME, dbManager);
 			logger.info("Metadata updated on disk");
 			set_DATA_USED(0);
 			tabMetadata.clear();
@@ -215,6 +218,7 @@ public class DBManager {
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
+		dbr.clearLog();
 	}
 
 	//*******three main methods*********
@@ -263,15 +267,12 @@ public class DBManager {
 			clusteredIndex.put(key, tmpIndex);
 			set_INDEXES_USED(get_INDEXES_USED() + indexSize);
 			logger.info("Metadata buffer updated");
-
 			// Writing the database onto the disk
-			DBStorage.writeData(DB_NAME, this.data);
+			DBStorage.writeData(DBManager.DB_NAME,this.data,dbManager);
+			DBStorage.writeMetaData(DBManager.DB_NAME, dbManager);
 			set_DATA_USED(get_DATA_USED() + data.length);
-			//System.out.println("Data related to key is " + key + ", and size is "
-			//		+ data.length + " have written to " + DB_NAME);
-
-			DBStorage.writeMetaData(DB_NAME, dbManager);
 			logger.info("Metadata updated on disk");
+			logger.info("Data with key " + key + " is wrote to database");
 		} catch (Exception e1) {
 			e1.printStackTrace();
 		} finally{
@@ -282,6 +283,7 @@ public class DBManager {
 			}
 		}
 	}
+
 
 	public byte[] Get(int tid,int key) {
 		/**
@@ -345,9 +347,9 @@ public class DBManager {
 				this.set_DATA_USED(get_DATA_USED() - tmp[0]);
 				this.set_INDEXES_USED(get_INDEXES_USED() - tmp[1]);
 				logger.info("Metadata buffer updated");
-				DBStorage.writeMetaData(DB_NAME, dbManager);
+				DBStorage.writeMetaData(DBManager.DB_NAME, dbManager);
 				logger.info("Metadata updated on disk");
-				System.out.println("Data with key " + key + " is removed.");
+				logger.info("Data with key " + key + " is removed.");
 			}
 		} catch (Exception e1) {
 			e1.printStackTrace();
@@ -363,6 +365,37 @@ public class DBManager {
 
 	public byte[] Get(int key){return Get(0,key);}
 
+	public void setAttribute(int rid,String Attr_name,Object value) throws Exception {
+		String str_val=String.valueOf(value);
+		if(clusteredIndex.containsKey(rid)) {
+			Index index = clusteredIndex.get(rid);
+			int tid = index.getTID();
+			if (isAttribute(tid, Attr_name)) {
+				byte[] tmpByte=Get(tid,rid);
+				List<Pair> tabMate=tabMetadata.get(tid);
+				int type=-1,length=0,offset=0;
+				for(int i=1;i<tabMate.size();i++){
+					Pair p= (Pair) tabMate.get(i).getRight();
+					offset+=length;
+					type= (int) p.getLeft();
+					length= (int) p.getRight();
+					if(((String)tabMate.get(i).getLeft()).toLowerCase().equals(Attr_name.toLowerCase())) break;
+				}
+				if(type==0) System.arraycopy(IndexHelperImpl.intToByte(((Double)(Double.parseDouble(str_val))).intValue()),0,tmpByte,offset,length);
+				if(type==1){
+					byte[] str=str_val.getBytes();
+					for(int i=0;i<length;i++)
+						if(i<str.length) tmpByte[offset+i]=str[i];
+						else tmpByte[offset+i]=32;
+				}
+				if(type==2) System.arraycopy(IndexHelperImpl.floatToByte(((Double)(Double.parseDouble(str_val))).floatValue()),0,tmpByte,offset,length);
+				// Writing Logs
+				Object oldval = this.getAttribute(tid,Get(tid,rid),Attr_name);
+				dbr.logUpdate(rid, Attr_name, type, oldval, str_val);
+				Put(tid,rid,tmpByte);
+			} else throw new Exception("Unknown table or attributes");
+		}
+	}
 
 	//retrieve attribute value according to the rid and attribute name
 	public Object getAttribute(int tid,byte[] record, String Attr_name){
@@ -399,7 +432,7 @@ public class DBManager {
 	}
 
 	//fetch the key according to the attributes by using index. Return a List of RIDs.
-	public List getKeyFromAttr(List<String> AttrNames,List<String> AttrValues) throws Exception {
+	/*public List getKeyFromAttr(List<String> AttrNames,List<String> AttrValues) throws Exception {
 		int tid=0;
 		String attrs = "";
 		if (AttrNames.size() > 1) {
@@ -417,7 +450,7 @@ public class DBManager {
 		else{
 			throw new Exception("No Attribute Index!");
 		}
-	}
+	}*/
 
 	public void printQuery(int tid,List<String> attrNames,Condition c) throws Exception {
 		//not table found
@@ -439,7 +472,7 @@ public class DBManager {
 
 		//if all the attr are Index or No where-condition
 		boolean all_in=!addedAttrNames.isEmpty();
-		if(!isAttrIndex(tid,(ArrayList<String>) attrNames)) all_in=false;
+		if(!isAttrIndex(tid, attrNames)) all_in=false;
 		//if so
 		if(all_in){
 			String attrs = "";
@@ -610,7 +643,7 @@ public class DBManager {
 		}
 		this.attrIndexes.get(tid).put(attrs, attrindex);
 		try {
-			DBStorage.writeMetaData(DB_NAME,dbManager);
+			DBStorage.writeMetaData(DBManager.DB_NAME,dbManager);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -651,11 +684,18 @@ public class DBManager {
 		}
 		return false;
 	}
+	public void Commit(){
+		dbr.writeCHK();
+	}
+	public void Failure(){
+		dbr.writeFailure();
+	}
+	public void Failure(String str){dbr.writeRedoPoint();}
 
 	//Returns a sorted List of List<Integers> based on the attributes
 	public List<Integer> Indexsort(int tid, List<String> attrNames){
-		ArrayList<Integer> sortedRIDs = new ArrayList<Integer>();
-		TreeMap<String,List<Integer>> t= new TreeMap<String,List<Integer>>();
+		ArrayList<Integer> sortedRIDs = new ArrayList<>();
+		TreeMap<String,List<Integer>> t= new TreeMap<>();
 		AttrIndex Aindex = getIndex(tid,attrNames);
 		for (Object hashval : Aindex.table.keySet()){
 			List<Integer> keys = Aindex.Get(hashval);
@@ -666,9 +706,7 @@ public class DBManager {
 			}
 			t.put(toSearch, keys);
 		}
-		for (List<Integer> subl : t.values()){
-			sortedRIDs.addAll(subl);
-		}
+		t.values().forEach(sortedRIDs::addAll);
 		return sortedRIDs;
 	}
 }

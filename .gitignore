@@ -3,6 +3,7 @@
 .DS_Store
 *.log
 .gitignore
+bin/
 database/.classpath
 database/.project
 database/.settings/
